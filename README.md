@@ -1,8 +1,5 @@
 # Predict House Prices
-## Consists two sub-project: 
-  - Housing Prices Competition for Kaggle Learn Users
-  - House Prices - Advanced Regression Techniques
-  
+## Overview:  
   With many variables (over 79) describing (almost) every aspect of residential homes in Ames, Iowa, this competition challenges you to predict the final price of each home.
   
 ## Practice Skills
