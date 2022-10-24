@@ -1,0 +1,810 @@
+---
+title: "Final Project Report - Data Mining Spring 2020"
+author: "J-A-G"
+date: "3/29/2020"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+
+## I. Summary
+* Project Motivation
+
+* Data analysis/algorithm selection (very briefly)
+
+* Output/results(briefly) 
+
+* Recommendation(briefly) 
+
+* Teammate contribution
+
+## II. Dataset Introduction and Problem Description
+
+```{r, include=T}
+train <- read.csv("train.csv")
+dim(train) #check dimension
+```
+
+
+```{r, echo = FALSE, include = FALSE}
+names(train)
+```
+
+### 1. Dataset Description
+The dataset is made up of independent variables that may or may not affect the values of properties in Ames, Iowa. Some examples are roofing types, last remodeled date, etc. Our data source is from [Kaggle.com’s *House Prices: Advanced Regression Techniques competition*](https://www.kaggle.com/c/house-prices-advanced-regression-techniques). The data set has 80 independent variables and 1 dependent variable, consisting of 1460 observations in the training dataset (450 kb) and 1459 observations in the test dataset (441 kb) (already split by Kaggle). The dependent variable is the sale price of properties in Ames, Iowa.
+
+### 2. Problem definition
+We need to predict the final price of residential homes in Ames, Iowa, based on 80 explanatory variables. This could be very powerful as a result.  To potential real estate agencies, they could know where to target, if certain locations in the city turned out to sell for more. On the other hand, homeowners could know what to do to raise their property value (remodel, put a new roof on, etc.) depending on which raises the value of their property the most. Moreover, home seekers/potential buyers can choose the features of the homes that they want to buy to estimate the necessary budget. 
+
+### 3. Column description
+There are 80 explanatory variables describing (almost) every aspect of residential homes in Ames, Iowa, this project expects us to predict the final price of each home.
+Here are some explanation and description of a few variables as a sample:
+
+* SalePrice - the property's sale price in dollars. This is the target variable that we're trying to predict.
+* LotFrontage: Linear feet of street connected to property
+* LotArea: Lot size in square feet
+* Street: Type of road access
+* LotShape: General shape of property
+* LandContour: Flatness of the property
+* Utilities: Type of utilities available
+ 
+### 4. Some initial concerns with the dataset 
+
+There are a few concerns about data preprocessing. Firstly, we have to consider how to deal with missing data. To handle this issue,  we will look into the most reasonable interpretation of NA's for each of the variables, and make the appropriate changes to clean the data. Then, we will assess the implications of those changes on our model. Secondly, we have to take into account the computational speed of each model. If there is an issue with how long a certain analysis type is taking, then we will have to reduce some variables with other methods and re-run, or we will have to remove that type of analysis. However, the data set is relatively small, so we shouldn’t run into these issues. Thirdly, the model can predict very well but is hard to interpret. We will try to opt for a simpler model if the test errors from the 2 models (complex vs. simple) are not drastically different. Also, we should focus more on the meaning of the features in the selected model.
+
+## III. Data Cleaning
+
+### 1. Missing Data Handling
+
+First, we would like to address the problem of missing values. Since there are variables with hundreds or even more than a thousand of missing values, simple deletion is not a good option as we could significantly shrink the sample size.
+
+```{r, echo = F}
+summary(train$Alley)
+```
+
+```{r, echo=FALSE}
+summary(train$PoolQC)
+```
+
+```{r, echo = FALSE}
+summary(train$Fence)
+```
+
+
+Therefore, we have decided to go with the following strategies. For each categorical variable with missing values, we will add a new level called "Missing" to store all of the NA's. For each numerical variable with missing values, we will replace the NA's with the median value of that variable. We chose the median over the mean replacement because median is less affected by outliers and thus, is more stable. 
+
+```{r}
+# Creating a new level in categorical variables to store NA values
+train[] <- lapply(train, function(x){
+  # check if you have a factor first:
+  if(!is.factor(x)) return(x)
+  # otherwise include NAs into factor levels and change factor levels:
+  x <- factor(x, exclude=NULL)
+  levels(x)[is.na(levels(x))] <- "Missing"
+  return(x)
+  })
+```
+
+```{r}
+summary(train$Alley)
+```
+
+
+```{r}
+# replacing NA's in numerical variables with the respective column median
+for (i in 1:ncol(train)) {
+  if(is.numeric(train[,i])) {
+  train[,i][is.na(train[,i])] <- median(train[,i], na.rm=TRUE)
+  }
+}
+```
+
+### 2. Variable Distribution Assessment
+Next, we would like to evaluate the distribution of each predictor.
+We would use skewness as the metric to assess normality. 
+
+```{r, eval=TRUE, message=FALSE, warning = FALSE}
+# skewness() function comes from this library
+library(e1071)
+```
+
+```{r}
+factor_list <- c() # a vector that only contain categorical variables from the train dataset
+for (i in 1:ncol(train)) {
+  a <- is.factor(train[,i])
+  if (a == TRUE) {
+    factor_list <- c(factor_list,i)
+  }
+}
+```
+
+The factor_list is used to isolate the numerical predictors from categorical predictors in the training dataset.
+
+The following numerical variables are heavily skewed with the absolute value of skewness larger than 3 (our chosen threshold). These variables are likely to not have a normal distribution. 
+```{r, echo = FALSE}
+# check the skewness of numerical variables. Anything out of the range [-3,3] 
+#should raise concern.
+# Print out the highly-skewed variables and their skewness. These variables #are likely to not have a normal distribution. 
+for (i in (1:ncol(train[,-factor_list]))) {
+  if (abs(skewness(train[,-factor_list][,i])) > 3) {
+  
+  print(paste(colnames(train[,-factor_list])[i],
+              skewness(train[,-factor_list][,i])))
+  }
+}
+```
+
+
+```{r, fig.height = 10, echo = FALSE,fig.width= 10}
+par(mfrow = c(4,3))
+hist(train$LotArea, breaks = 30, col = "blue" ) #can be fixed by Log transformation
+hist(train$BsmtFinSF2, breaks = 30, col = "blue" )
+hist(train$LowQualFinSF, breaks = 30, col = "blue" )
+hist(train$BsmtHalfBath, breaks = 30, col = "blue" )
+hist(train$KitchenAbvGr, breaks = 30, col = "blue" ) # transform into categorical var with 
+#levels "One" and "More than One"
+hist(train$EnclosedPorch, breaks = 30, col = "blue" ) 
+hist(train$X3SsnPorch, breaks = 30, col = "blue" )
+hist(train$ScreenPorch, breaks = 30, col = "blue" )
+hist(train$PoolArea, breaks = 30, col = "blue" )
+hist(train$MiscVal, breaks = 30, col = "blue" )
+```
+
+We see that for all of the heavily skewed variables with the exception of LotArea, the major problem is that there are too many zeros (or too many 1's in the case of KitchenAbvGr).
+To correct this issue, we will transform those numerical variables into categorical variables with levels of "Zeros" and "More than Zeros" (or "One" and "More than One").
+
+
+```{r, echo = FALSE}
+# create a function to turn all highly-skewed numerical variables with many 
+# zeros into categorical variables with 2 levels "More than 0" and "0".
+categorize <- function(x) {
+  for (i in 1:length(x)) {
+    if (x[i] > 0) {
+      x[i] <- "More than 0"
+  }
+}
+  x <- as.factor(x)
+}
+```
+
+```{r, echo = FALSE}
+# Apply the categorize function to the 9 highly-skewed numerical # variables identified above (excluding KitchenAbvGr_new)
+for (i in c('BsmtFinSF2','LowQualFinSF','BsmtHalfBath','EnclosedPorch',
+            'X3SsnPorch','ScreenPorch','PoolArea','MiscVal')) {
+  train[,i] <- categorize(train[,i])
+}
+```
+
+Let's check one of the newly transformed variables, MiscVal_new (a modified copy of MiscVal). 
+```{r, echo = FALSE}
+# check one of the newly transformed variable
+summary(train$MiscVal)
+```
+
+We will also check the new summary for KitchenAbvGr (a modified copy of KitchenAbvGr).
+```{r, echo = FALSE}
+# Tweak the code of categorize() function to apply similar process to KitchenAbvGr
+for (i in 1:length(train$KitchenAbvGr)) {
+  if (train$KitchenAbvGr[i] > 1) {
+    train$KitchenAbvGr[i] <- "More than 1"
+  }
+}
+train$KitchenAbvGr<- as.factor(train$KitchenAbvGr)
+summary(train$KitchenAbvGr)
+```
+
+As we can see, there is one observation that has KitchenAbvGr = 0. This is an outlier,so we decided to remove this observation from our training dataset. 
+
+```{r, echo = FALSE}
+train <- train[-which(train$KitchenAbvGr == 0),]
+```
+
+Next, we will alleviate the skewness of LotArea using log-transformation. 
+
+```{r, echo = FALSE}
+# fix Lot Area skewness using log transformation
+train$LotArea <- log(train$LotArea)
+```
+
+Now, our new training dataset will include 1 response variable (SalePrice), 70 original predictors, and 10 transformed variables to replace the problematic ones. 
+```{r}
+train_off <- train
+```
+
+
+*Analyze response SalePrice
+
+```{r}
+# descriptive statistic summary
+summary(train_off$SalePrice)
+```
+
+```{r,echo = FALSE}
+# distribution of SalePrice
+#install.packages("ggplot2")
+library(ggplot2)
+ggplot(data = train_off, aes(SalePrice)) + geom_histogram(bins = 50,
+                                                          col = "black",
+                                                          fill = "blue") +
+  labs(title = "SalePrice Distribution", x="SalePrice", y= "Count")
+```
+
+We can see that the distribution is right-skewed. 
+Next, we check Q-Q plot to see if the distribution is close to normal.
+```{r, echo = FALSE}
+#install.packages(ggpubr)
+library(ggpubr)
+ggqqplot(train_off$SalePrice)
+```
+
+So clearly, the SalePrice distribution is not normal. We will use log-transformation for SalePrice. The picture below tells that the distribution is now much closer to normal. 
+```{r, echo = FALSE}
+train_off$SalePrice <- log(train_off$SalePrice)
+ggqqplot(train_off$SalePrice)
+```
+
+
+### 3. Dummy variables transformation 
+
+Last but not least, we create dummies for all categorical variables in the train_off data frame.
+```{r, include = FALSE}
+#install.packages("dummies")
+library(dummies)
+train_off <- dummy.data.frame(train_off, sep = ".")
+#names(train_off)
+```
+
+
+## IV. Data Mining Techniques/Algorithms 
+
+### 1. Variable Pre-selection
+
+We will filter out variables to only keep the variables that have a moderately high correlation with response variable y=SalePrice. We have chosen the threshold to be plus/minus 0.4. The resulting subset of variables will be used to fit all of the following models. 
+```{r, include = TRUE}
+# dataset train_X only contain predictors
+train_X <- train_off[,-which(colnames(train_off)=="SalePrice")]
+num_list <- c() # a vector that only contain numerical variables from the train_off dataset
+for (i in 1:ncol(train_X)) {
+  a <- is.numeric(train_X[,i])
+  if (a == TRUE) {
+    num_list <- c(num_list,i)
+  }
+}
+# train_X_num is a dataset that only contains numerical variables
+train_X_num <- train_X[,num_list]
+dim(train_X_num)
+```
+
+```{r, include}
+cors <- cor(train_X_num,train_off$SalePrice)
+whichers <- which(abs(cors)>.4)
+whichers
+```
+```{r}
+colnames(train_X_num[88])
+colnames(train_X_num[191])
+colnames(train_X_num[215])
+colnames(train_X_num[255])
+colnames(train_X_num[256])
+```
+
+```{r, include=FALSE}
+train_X <- train_X_num[, c(9,88,90,91,142,145,146,154,158,161,175,191,198,211,215,219,224,226,227,
+                           228,236,242,244,250,251,253,255,256)]
+train_off_new <- train_X
+train_off_new$SalePrice <- train_off$SalePrice
+train_off <- train_off_new
+```
+
+train_off has 29 variables including 28 predictors and 1 response variable, SalePrice. 
+```{r, echo=F}
+dim(train_off)
+```
+
+
+```{r, include = FALSE}
+# Create a heat map of correlation between pairs of variables
+# first, create a correlation matrix
+num_list <- c() 
+# a vector that only contains the position of numerical variables from the #train_off dataset
+for (i in 1:ncol(train_off)) {
+  a <- is.numeric(train_off[,i])
+  if (a == TRUE) {
+    num_list <- c(num_list,i)
+  }
+}
+cormat <- round(cor(train_off[,num_list]),2)
+```
+
+```{r, include = FALSE}
+# Get lower triangle of the correlation matrix
+  get_lower_tri<-function(cormat){
+    cormat[upper.tri(cormat)] <- NA
+    return(cormat)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+  }
+```
+
+
+```{r, include = FALSE}
+upper_tri <- get_upper_tri(cormat)
+```
+
+```{r, include = FALSE}
+reorder_cormat <- function(cormat){
+# Use correlation between variables as distance
+dd <- as.dist((1-cormat)/2)
+hc <- hclust(dd)
+cormat <-cormat[hc$order, hc$order]
+}
+```
+
+```{r, echo = FALSE,  fig.height=15,fig.width=15 }
+#install.packages(reshape2)
+library(reshape2)
+# Reorder the correlation matrix
+cormat <- reorder_cormat(cormat)
+upper_tri <- get_upper_tri(cormat)
+# Melt the correlation matrix
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+# Create a ggheatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelation") +
+  theme_minimal()+ # minimal theme
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+
+ coord_fixed()
+# Print the heatmap
+print(ggheatmap)
+```
+```{r}
+# Fit the variable pre-selection model
+var_pre <- lm(SalePrice~., data = train_off)
+summary(var_pre) #Adjusted R-squared:  0.8526 
+```
+
+We split the train_off to 2 parts that are train_set data set (80% of total observations) and test_set data set (20% of total observations). The test_set will be used to compare the best models across techniques to find the final best-performance model. 
+
+```{r}
+set.seed(11)
+trainS=sample(1:nrow(train_off),nrow(train_off)*0.8) #create training set # 80/20
+train_set <- train_off[trainS,]
+test_set <-train_off[-trainS,]
+```
+
+
+
+### 2. LINEAR REGRESSION TECHNIQUES
+ 
+
+```{r, echo = FALSE}
+library(leaps)
+```
+
+
+
+### 2.1 BEST SUBSET SELECTION
+
+We will use 10-fold Cross validation to choose the number of variables to include in our best subset selection model. 
+
+```{r, echo = FALSE}
+#Let's use a 10 fold CV to select the best number of variables to include in the model
+k=10
+set.seed(10)
+folds=sample(1:10,nrow(train_set),replace=TRUE) #construct 10 different subsets of the training data
+cv.error=matrix(NA,k,28) #construct a matrix to store validation error for each fold across all models
+```
+
+```{r, echo = FALSE}
+for (j in 1:k){
+  best.fit=regsubsets(SalePrice~., data=train_set[folds!=j,],nvmax=28) #we fit the model using all data except for fold j
+  for (i in 1:28){
+    coefi=coef(best.fit,id=i) #extract coefficients for the best model with i number of regressors
+    cvi.mat=model.matrix(SalePrice~.,data=train_set[folds==j,]) #convert data from fold j to a matrix
+    pred=cvi.mat[,names(coefi)]%*%coefi #calculate prediction
+    cv.error[j,i]=mean((train_set[folds==j,]$SalePrice-pred)^2) #calculate squared errors
+  }
+}
+```
+
+
+```{r, echo = FALSE}
+mean.cv.error=apply(cv.error,2,mean) #calculate mean squared error for each model by averaging the MSE across all folds
+par(mfrow=c(1,1))
+plot(mean.cv.error,type="b")
+```
+
+
+```{r,include = F}
+n_best=which.min(mean.cv.error) #find the best number of variables to include
+n_best
+```
+
+We see that from the point of 9 variables, when we add more variables into the model, the mean cv error does not decrease substantially. Thus, we would use 9 variables in our final best subset selection model. We received a test MSE of 0.01875441.
+Below are the variables in the final model along with their respective coefficient estimators. 
+```{r, echo = F}
+#calculate the test MSE
+reg.best=regsubsets(SalePrice~.,data=train_set,nvmax=28)
+coef.test=coef(reg.best,id=9) # variables in the best-fit model
+test.mat=model.matrix(SalePrice~.,data=test_set)
+pred=test.mat[,names(coef.test)]%*%coef.test
+best_sub_mse=mean((test_set$SalePrice-pred)^2)
+best_sub_mse
+```
+
+```{r, echo = FALSE}
+coef.test
+```
+
+
+
+### 2.2 LASSO REGRESSION
+
+```{r, include=FALSE}
+library(glmnet)
+```
+
+```{r, include = F}
+x.train=model.matrix(SalePrice~.,train_set)[,-1] #put regressors from training set into a matrix
+y.train=train_set$SalePrice #label for training set
+x.test= model.matrix(SalePrice~.,test_set)[,-1] #put regressors from test set into a matrix
+y.test=test_set$SalePrice #label for test set
+```
+
+In order to reduce the number of predictors in a model, first we use LASSO regression. As opposed to Ridge Regression, LASSO performs feature selection. Its penalization method allows variables to be shrunken to 0 with an intermediate value of lambda (tuning parameter).  Therefore, the resulting model will be sparser than the least square model. We use a 10-fold cv process to select the best lamda =  0.00253231. The final Lasso model results in a test MSE of  0.01840172 and has 23 variables, which are shown below along with their coefficient estimates. 
+
+```{r, include = F}
+#LASSO regression
+set.seed(3)
+lasso.mod=glmnet(x.train,y.train,alpha=1) #build a LASSO regression
+cv.out=cv.glmnet(x.train,y.train,alpha=1) # use 10 fold cv to select shrinkage parameter
+plot(cv.out)
+bestlam_l=cv.out$lambda.min #find the best shrinkage parameter
+```
+
+```{r, include = F}
+bestlam_l
+```
+
+
+```{r, include = F}
+lasso.pred=predict(lasso.mod,s=bestlam_l,newx=x.test) #making prediction using the best shrinkage parameter
+lasso_mse=mean((lasso.pred-y.test)^2) #calculate test MSE
+lasso_mse
+```
+
+```{r, echo = F}
+out=glmnet(x.train,y.train,alpha=1)
+lasso.coef = predict(out,type="coefficients",s=bestlam_l)[1:29,]
+# show only coefficients that are not zero
+lasso.coef[lasso.coef!=0]
+```
+
+```{r, include = F}
+length(lasso.coef[lasso.coef!=0]) 
+# see how many variables in the final LASSO model
+```
+
+
+### 2.3 RIDGE REGRESSION
+We also try Ridge regression, to see if we get a lower MSE with it over LASSO. We also use 10-fold Cross validation to select the best lambda. 
+
+
+```{r, echo = F}
+#Ridge regression
+set.seed(53)
+ridge.mod=glmnet(x.train,y.train,alpha=0) #build a ridge regression
+cv.out=cv.glmnet(x.train,y.train,alpha=0) # use 10 fold cv to select shrinkage parameter
+plot(cv.out)
+bestlam_r=cv.out$lambda.min #find the best shrinkage parameter
+bestlam_r
+```
+```{r, include=F}
+bestlam_r
+```
+
+
+```{r}
+ridge.pred=predict(ridge.mod,s=bestlam_r,newx=x.test) #making prediction using the best shrinkage parameter
+ridge_mse = mean((ridge.pred-y.test)^2) #calculate test MSE
+ridge_mse
+```
+
+### 2.4 Principal Component Regression (PCR)
+
+We decided to include 10 principal components in our final PCR model. The resulting test MSE is 0.02155774. 
+
+```{r, echo = F}
+#install.packages("pls")
+library(pls)
+set.seed(2)
+pcr.fit=pcr(SalePrice~., data = train_set, validation="CV") #run principal component regression using 10 fold CV to select the best number of component
+#summary(pcr.fit)
+```
+
+```{r, echo = F}
+validationplot(pcr.fit,val.type = "MSEP") #show the CV MSE for different number of components
+```
+
+```{r, include = T}
+pcr.pred=predict(pcr.fit,test_set,ncomp=10) #make predictions using 10 components
+pcr_mse = mean((test_set$SalePrice-pcr.pred)^2) #calculate mse using the test set
+pcr_mse
+``` 
+
+### 2.5 PARTIAL LEAST SQUARE REGRESSION (PLS)
+
+Test MSE = 0.02011798 with a 9-component model.
+
+```{r, echo = F}
+set.seed(20)
+pls.fit=plsr(SalePrice~.,data=train_set, validation="CV") #run partial least square using 10 fold CV to select the best number of component
+#summary(pls.fit)
+```
+
+```{r, echo = F}
+validationplot(pls.fit,val.type = "MSEP") 
+```
+
+```{r, include = F}
+pls.pred=predict(pls.fit,test_set,ncomp=9) #make predictions using 9 components
+pls_mse = mean((test_set$SalePrice-pls.pred)^2) #calculate mse using the test set
+pls_mse
+```
+
+
+### 3. NON-LINEAR REGRESSION TECHNIQUES
+
+```{r, include = F}
+#install.packages(caret)
+library(caret)
+```
+
+
+### 3.1 KNN
+
+With k= 16, the final KNN model has a test MSE of 0.03670308.
+
+```{r, include = F}
+trControl <- trainControl(method = 'repeatedcv',
+                          number = 10,#number of resampling iterations
+                          repeats = 3)# repeat the whole thing three times
+set.seed(13)
+knnFit <- train(SalePrice ~.,
+                data=train_set,
+                tuneGrid = expand.grid(k=1:50),
+                method='knn',
+                trControl = trControl,
+                preProc = c('center','scale') #Used to normalize our data - "center" is used to subtract against the mean, and "scale" is used to divide by standard deviation, giving a Z-score, essentially.
+                )
+knnFit #k=16 Gives lowest value for RMSE (0.2075071) and a very close to highest value of R^2 of 0.7262369
+```
+
+```{r, echo = FALSE}
+plot(knnFit)
+```
+
+```{r}
+knn.pred=predict(knnFit,test_set,k=16) #make predictions using 9 components
+knn_mse = mean((test_set$SalePrice-knn.pred)^2) #calculate mse using the test set
+knn_mse
+```
+
+### 3.2 Regression Tree
+
+```{r, warning=FALSE}
+# install.packages("tree")
+library(tree)
+```
+
+
+```{r echo=F}
+tree.train_set=tree(SalePrice~.,data = train_set) #fit a regression tree using the training data
+summary(tree.train_set)
+```
+
+```{r, fig.height=12, fig.width=24, echo = F}
+plot(tree.train_set) # plot the tree
+text(tree.train_set, all = TRUE, cex = 1.8, pretty = 0)
+```
+
+
+
+```{r, echo = F}
+set.seed(4)
+cv.train_set=cv.tree(tree.train_set) #find optimal num of terminal node using cross validation
+```
+
+
+```{r, echo = F}
+plot(cv.train_set$size, cv.train_set$dev, type="b")
+```
+
+
+```{r}
+yhat=predict(tree.train_set, newdata=test_set) #make predictions using the best model
+price.test= test_set$SalePrice
+reg_tree_MSE=mean((yhat-price.test)^2) #calculate test MSE
+reg_tree_MSE
+```
+
+
+```{r, echo = F}
+# for more interpretability and overfiting concerns do some pruning within 6-9 terminal nodes
+prune.train_set = prune.tree(tree.train_set, best = 6)
+plot(prune.train_set)
+text(prune.train_set, cex = 0.8, pretty = 0)
+```
+
+```{r}
+yhat=predict(prune.train_set, newdata=test_set) #make predictions using the tuned model
+price.test=test_set$SalePrice
+prune_MSE=mean((yhat-price.test)^2) #calculate test MSE
+prune_MSE
+```
+
+
+### 3.3 Bagging and Random Forest
+
+```{r, include = F}
+#install.packages("randomForest")
+#install.packages("gbm")
+library(randomForest)
+```
+
+```{r, include = F}
+library(gbm)
+```
+
+```{r, include = F}
+library(MASS)
+```
+
+```{r}
+set.seed(6)
+bag.price=randomForest(SalePrice~.,data=train_set, mtry=28,importance=TRUE) #apply bagging on decision tree
+bag.price
+```
+
+```{r}
+#calculate test error
+yhat.bag=predict(bag.price,newdata=test_set)
+price.test=test_set$SalePrice
+bag_mse = mean((yhat.bag-price.test)^2)
+bag_mse
+```
+
+
+```{r}
+set.seed(6)
+bag.price=randomForest(SalePrice~.,data=train_set, mtry=28,importance=TRUE,ntree=25) #change the number of trees in bagging
+yhat.bag=predict(bag.price,newdata=test_set)
+mean((yhat.bag-price.test)^2)
+```
+
+```{r}
+set.seed(6)
+rf.price=randomForest(SalePrice~.,data=train_set, mtry=20,importance=TRUE,ntree=25) #apply random forest
+yhat.rf=predict(rf.price,newdata=test_set)
+rf_mse = mean((yhat.rf-price.test)^2)
+rf_mse
+```
+
+
+```{r}
+importance(rf.price) #check variable selection based on random forest
+```
+
+
+```{r}
+varImpPlot(rf.price)
+```
+
+### 3.4 Boosting
+
+```{r}
+set.seed(1)
+boost.price=gbm(SalePrice~.,data=train_set,distribution="gaussian",n.tree=1000,interaction.depth = 4) #fit a boosted tree
+summary(boost.price)
+```
+
+```{r}
+plot(boost.price,i="OverallQual")
+```
+
+
+```{r}
+#calculate test error
+yhat.boost=predict(boost.price,newdata=test_set,n.trees=1000)
+mean((yhat.boost-price.test)^2)
+```
+
+
+```{r}
+# fit a boosted tree with shrinkage parameter=0.05
+# interaction-complexity
+# shrinkage-balance 
+boost.price=gbm(SalePrice~.,data=train_set,distribution="gaussian",n.tree=1000,interaction.depth = 4, shrinkage=0.05)
+yhat.boost=predict(boost.price,newdata=test_set,n.trees=1000)
+mean((yhat.boost-price.test)^2)
+```
+
+
+```{r, include = FALSE}
+# hyper-parameter tuning of gradient boosting 
+set.seed(7)
+grid <- expand.grid(n.trees = 900, interaction.depth=2, shrinkage=c(0.05,0.1),n.minobsinnode=c(10,15))
+ctrl <- trainControl(method  = "cv",number  = 10)
+unwantedoutput <- capture.output(GBMModel <- train(SalePrice~.,data = train_set,
+                  method = "gbm", trControl = ctrl, tuneGrid = grid))
+```
+
+
+```{r}
+print(GBMModel)
+#The final values used for the model were n.trees = 900, interaction.depth = 2, shrinkage =
+#0.05 and n.minobsinnode = 10.
+```
+
+
+```{r}
+# newdata = test set
+# 1000<above
+yhat.boost=predict(GBMModel,newdata=test_set,n.trees=900)
+boost_mse = mean((yhat.boost-price.test)^2)
+boost_mse
+```
+```{r}
+plot(yhat.boost, test_set$SalePrice, pch = 20, xlab = "Predicted SalePrice",
+     ylab = "Observed SalePrice", main = "Predicted vs. Observed SalePrice") 
+abline(0, 1, untf = FALSE)
+```
+
+
+```{r}
+par(mar = c(5, 8, 1, 1))
+summary(
+  GBMModel, 
+  cBars = 15,
+  method = relative.influence, # also can use permutation.test.gbm
+  las = 2
+  )
+```
+
+## V. Test Set Prediction (TO BE FINISHED)
+
+### 1. Model comparison
+
+```{r, fig.height=10, fig.width=25, echo = F}
+library(tidyverse)
+# Bar plot of results
+Regression_MSE <- tibble(Model = c("Best subset", "LASSO", "Ridge", "PCR", "PLS",
+                                   "KNN", "Regression Tree", "Regression Tree After Pruning",
+                                   "Bagging","RF", "Boosting"), 
+                               Test_MSE = c(round(best_sub_mse,4), round(lasso_mse,4), 
+                                       round(ridge_mse,4), round(pcr_mse,4), 
+                                       round(pls_mse,4), round(knn_mse,4), round(reg_tree_MSE,4),
+                                       round(prune_MSE,4), 
+                                       round(bag_mse,4), round(rf_mse,4), round(boost_mse,4)
+                                       ))
+p = Regression_MSE %>% 
+  ggplot(aes(Model, Test_MSE)) + 
+  geom_col(position = "dodge", width = 0.8) + 
+  ggtitle("Model Comparison")
+  
+p + theme(axis.text.x = element_text(angle = 0, size =20), axis.text.y = element_text(angle = 0, size = 25)) + geom_text(aes(label=Test_MSE),position=position_dodge(width=0.9), hjust=-0.02, size = 7) +
+  coord_flip()
+```
+
+
+
+## VI. Conclusion (TO BE FINISHED)
